@@ -1,6 +1,37 @@
 # Changelog
 
-## Version 1.2.0 - UI/UX Improvements (Current)
+## Version 1.2.1 - Testing and Automation (Current)
+
+### ✨ New Features
+- **Playwright end-to-end testing**: Added automated browser tests for core reader behavior
+- **Test artifact preparation**: Added on-demand EPUB fixture download for reliable test setup
+- **Lightweight local static server**: Added test server utility for consistent execution environment
+- **NPM test workflow scripts**:
+  - `npm run test:prepare` downloads test artifact when missing
+  - `npm test` prepares artifacts and runs Playwright suite
+  - `npm run test:headed` runs tests in headed mode
+
+### 🧪 Test Coverage Added
+1. **Default reader shell render**
+  - Verifies branding and empty-state behavior before loading a book
+  - Confirms reader content is initially empty
+  - Confirms chapter navigation buttons are disabled initially
+2. **EPUB load and chapter navigation**
+  - Uploads the EPUB fixture through the file input
+  - Verifies loading completion and rendered chapter content
+  - Validates chapter/page indicator format and navigation behavior
+  - Confirms Table of Contents entries are visible
+
+### 🔧 Technical Details
+- Added Playwright test suite under `tests/e2e`
+- Added test setup utilities under `tests/scripts`
+- Added Playwright configuration (`playwright.config.js`)
+- Ensured test outputs are ignored in version control (`playwright-report`, `test-results`)
+- Linux dev container note: first-time setup may require `npx playwright install --with-deps chromium`
+
+---
+
+## Version 1.2.0 - UI/UX Improvements
 
 ### ✅ Fixed
 - **Table of Contents scrollbar**: Now visible and properly styled with hover effects

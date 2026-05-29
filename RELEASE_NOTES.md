@@ -1,3 +1,58 @@
+# Papyrus EPUB Reader - Version 1.2.1 Release Notes 
+
+## 🎉 What's New
+
+### Playwright Testing Added
+- Added an end-to-end test suite using Playwright.
+- Added automated test artifact preparation using the EPUB file:
+  - https://github.com/IDPF/epub3-samples/releases/download/20230704/accessible_epub_3.epub
+- Added a lightweight local static server used during test execution.
+- Added npm scripts for test setup and execution.
+
+### Test Folder Structure
+```
+tests/
+├── e2e/
+│   └── epub-reader.spec.js
+├── fixtures/
+│   └── .gitkeep
+└── scripts/
+    ├── download-test-epub.js
+    └── static-server.js
+```
+
+### Test Automation Configuration
+- Playwright configuration file:
+  - playwright.config.js
+- New npm scripts:
+  - npm run test:prepare -> downloads the test EPUB artifact if missing
+  - npm test -> runs artifact preparation, then executes Playwright tests
+  - npm run test:headed -> runs tests in headed browser mode
+
+### Test Cases Added
+1. Default Reader Shell Render
+   - Confirms Papyrus logo is visible.
+   - Confirms empty state is visible before loading a book.
+   - Confirms reader content starts empty.
+   - Confirms chapter navigation buttons are disabled initially.
+
+2. EPUB Load and Chapter Navigation
+   - Uploads the accessible_epub_3.epub fixture via file input.
+   - Confirms loading indicator completes.
+   - Confirms empty state is hidden after successful load.
+   - Confirms chapter/page indicator format is valid (1 / N).
+   - Confirms chapter HTML content is rendered.
+   - Confirms next/previous chapter navigation updates page indicator.
+   - Confirms at least one Table of Contents item is visible.
+
+### Notes
+- The test EPUB binary is downloaded on demand into tests/fixtures and intentionally not tracked in git.
+- Test output folders are excluded from version control using .gitignore (playwright-report and test-results).
+- In Linux dev containers, first-time setup may require:
+  - npx playwright install --with-deps chromium
+
+---
+
 # Papyrus EPUB Reader - Version 1.2.0 Release Notes
 
 ## 🎉 What's New
