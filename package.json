@@ -1,7 +1,7 @@
 {
   "name": "papyrus-epub-reader",
   "version": "1.0.0",
-  "description": "A modern EPUB reader for Windows 11",
+  "description": "A modern EPUB reader for your Browser",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
