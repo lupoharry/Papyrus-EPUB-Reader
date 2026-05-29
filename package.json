@@ -1,0 +1,70 @@
+{
+  "name": "papyrus-epub-reader",
+  "version": "1.0.0",
+  "description": "A modern EPUB reader for Windows 11",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win",
+    "pack": "electron-builder --dir"
+  },
+  "keywords": [
+    "epub",
+    "reader",
+    "ebook",
+    "windows"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.papyrus.reader",
+    "productName": "Papyrus EPUB Reader",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "epub-reader.html",
+      "epub-reader.js",
+      "main.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Papyrus EPUB Reader",
+      "deleteAppDataOnUninstall": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "fileAssociations": [
+      {
+        "ext": "epub",
+        "name": "EPUB Document",
+        "description": "EPUB eBook file",
+        "role": "Viewer"
+      }
+    ]
+  }
+}

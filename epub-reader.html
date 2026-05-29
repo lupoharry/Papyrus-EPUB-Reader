@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Papyrus - EPUB Reader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cream: #FBF8F3;
+            --warm-gray: #E8E3DC;
+            --charcoal: #2C2C2C;
+            --sepia: #8B7355;
+            --accent: #C17856;
+            --accent-dark: #964F36;
+            --shadow: rgba(44, 44, 44, 0.1);
+            
+            --serif: 'Cormorant Garamond', serif;
+            --sans: 'Manrope', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--sans);
+            background: linear-gradient(135deg, var(--cream) 0%, var(--warm-gray) 100%);
+            color: var(--charcoal);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Main Layout */
+        .app-container {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: linear-gradient(180deg, #ffffff 0%, var(--warm-gray) 100%);
+            border-right: 1px solid rgba(44, 44, 44, 0.1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 4px 0 20px var(--shadow);
+            z-index: 10;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed {
+            transform: translateX(-280px);
+        }
+
+        .sidebar-header {
+            padding: 32px 24px;
+            border-bottom: 1px solid rgba(44, 44, 44, 0.08);
+        }
+
+        .logo {
+            font-family: var(--serif);
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--accent-dark);
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .tagline {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--sepia);
+            font-weight: 500;
+        }
+
+        .book-info {
+            padding: 24px;
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .book-info::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .book-info::-webkit-scrollbar-track {
+            background: rgba(139, 115, 85, 0.05);
+            border-radius: 4px;
+        }
+
+        .book-info::-webkit-scrollbar-thumb {
+            background: var(--sepia);
+            border-radius: 4px;
+        }
+
+        .book-info::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        .no-book {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--sepia);
+        }
+
+        .no-book svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        .cover-image {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(44, 44, 44, 0.2);
+            margin-bottom: 20px;
+            aspect-ratio: 2/3;
+            object-fit: cover;
+            background: linear-gradient(135deg, var(--sepia) 0%, var(--accent) 100%);
+        }
+
+        .book-title {
+            font-family: var(--serif);
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--charcoal);
+            margin-bottom: 8px;
+            line-height: 1.3;
+        }
+
+        .book-author {
+            font-size: 14px;
+            color: var(--sepia);
+            margin-bottom: 20px;
+        }
+
+        .toc-section {
+            margin-top: 24px;
+        }
+
+        .toc-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--sepia);
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .toc-list {
+            list-style: none;
+        }
+
+        .toc-item {
+            padding: 8px 12px;
+            margin-bottom: 4px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            color: var(--charcoal);
+        }
+
+        .toc-item:hover {
+            background: rgba(193, 120, 86, 0.1);
+            color: var(--accent-dark);
+            transform: translateX(4px);
+        }
+
+        .toc-item.active {
+            background: var(--accent);
+            color: white;
+            font-weight: 500;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            background: white;
+            border-bottom: 1px solid rgba(44, 44, 44, 0.08);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 2px 8px var(--shadow);
+            z-index: 5;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-family: var(--sans);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background: var(--accent-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(193, 120, 86, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--charcoal);
+            border: 1px solid var(--warm-gray);
+        }
+
+        .btn-secondary:hover {
+            background: var(--warm-gray);
+            border-color: var(--sepia);
+            box-shadow: none;
+        }
+
+        .btn-icon {
+            padding: 8px;
+            min-width: 36px;
+            justify-content: center;
+        }
+
+        .toolbar-spacer {
+            flex: 1;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background: var(--warm-gray);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .page-info {
+            font-size: 13px;
+            color: var(--sepia);
+            font-family: var(--serif);
+        }
+
+        /* Reader View */
+        .reader-container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .reader-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 60px 80px 180px 80px;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            font-family: var(--serif);
+            font-size: 18px;
+            line-height: 1.8;
+            color: var(--charcoal);
+            scrollbar-width: thin;
+            scrollbar-color: var(--sepia) var(--warm-gray);
+            min-height: 0;
+        }
+
+        .reader-content::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .reader-content::-webkit-scrollbar-track {
+            background: var(--warm-gray);
+            border-radius: 5px;
+        }
+
+        .reader-content::-webkit-scrollbar-thumb {
+            background: var(--sepia);
+            border-radius: 5px;
+            border: 2px solid var(--warm-gray);
+        }
+
+        .reader-content::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        .reader-content h1,
+        .reader-content h2,
+        .reader-content h3 {
+            font-family: var(--serif);
+            font-weight: 600;
+            margin: 1.5em 0 0.75em;
+            line-height: 1.3;
+        }
+
+        .reader-content h1 {
+            font-size: 2.5em;
+            color: var(--accent-dark);
+        }
+
+        .reader-content h2 {
+            font-size: 2em;
+        }
+
+        .reader-content h3 {
+            font-size: 1.5em;
+        }
+
+        .reader-content p {
+            margin-bottom: 1.2em;
+            text-align: justify;
+            hyphens: auto;
+        }
+
+        .reader-content img {
+            max-width: 100%;
+            height: auto;
+            margin: 2em 0;
+            border-radius: 8px;
+        }
+
+        .reader-content a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(193, 120, 86, 0.3);
+            transition: border-color 0.2s;
+        }
+
+        .reader-content a:hover {
+            border-bottom-color: var(--accent);
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 140px;
+            background: linear-gradient(to top, white 0%, white 70%, transparent 100%);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 24px;
+            padding-bottom: 24px;
+            pointer-events: none;
+        }
+
+        .bottom-nav button {
+            pointer-events: all;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-width: 140px;
+        }
+
+        .bottom-nav .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .bottom-nav .btn:disabled:hover {
+            background: var(--accent);
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .empty-state svg {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 24px;
+            opacity: 0.2;
+        }
+
+        .empty-state h2 {
+            font-family: var(--serif);
+            font-size: 32px;
+            color: var(--charcoal);
+            margin-bottom: 12px;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            color: var(--sepia);
+            margin-bottom: 32px;
+        }
+
+        /* Loading Spinner */
+        .loading {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid var(--warm-gray);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            position: absolute;
+            top: 60px;
+            right: 24px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px var(--shadow);
+            padding: 24px;
+            min-width: 280px;
+            display: none;
+            z-index: 100;
+        }
+
+        .settings-panel.active {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+        }
+
+        .setting-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .setting-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--sepia);
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .setting-control {
+            display: flex;
+            gap: 8px;
+        }
+
+        .setting-btn {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid var(--warm-gray);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .setting-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .setting-btn:hover:not(.active) {
+            border-color: var(--accent);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--warm-gray);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        /* Hidden file input */
+        #fileInput {
+            display: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .app-container {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100vh;
+                width: 280px;
+            }
+
+            .reader-content {
+                padding: 40px 40px 160px 40px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .reader-content {
+                padding: 24px 20px 140px 20px;
+                font-size: 16px;
+            }
+
+            .toolbar {
+                padding: 12px 16px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .bottom-nav {
+                height: 120px;
+                gap: 16px;
+                padding-bottom: 16px;
+            }
+
+            .bottom-nav button {
+                min-width: 120px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">Papyrus</div>
+                <div class="tagline">EPUB Reader</div>
+            </div>
+            <div class="book-info" id="bookInfo">
+                <div class="no-book">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    <p>No book loaded</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <button class="btn btn-icon btn-secondary" id="toggleSidebar" title="Toggle Sidebar">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                
+                <button class="btn" id="openFile">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    Open EPUB
+                </button>
+
+                <button class="btn btn-secondary btn-icon" id="prevChapter" title="Previous Chapter" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                </button>
+
+                <button class="btn btn-secondary btn-icon" id="nextChapter" title="Next Chapter" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
+
+                <div class="toolbar-spacer"></div>
+
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+
+                <span class="page-info" id="pageInfo">—</span>
+
+                <button class="btn btn-secondary btn-icon" id="settingsBtn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 1v6m0 6v6m6-12h-6m-6 0H1m17 11h-6m-6 0H1"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Settings Panel -->
+            <div class="settings-panel" id="settingsPanel">
+                <div class="setting-group">
+                    <label class="setting-label">Font Size</label>
+                    <input type="range" id="fontSizeSlider" min="14" max="24" value="18" step="1">
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">Theme</label>
+                    <div class="setting-control">
+                        <button class="setting-btn active" data-theme="light">Light</button>
+                        <button class="setting-btn" data-theme="sepia">Sepia</button>
+                        <button class="setting-btn" data-theme="dark">Dark</button>
+                    </div>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">Line Height</label>
+                    <div class="setting-control">
+                        <button class="setting-btn" data-line-height="1.5">Tight</button>
+                        <button class="setting-btn active" data-line-height="1.8">Normal</button>
+                        <button class="setting-btn" data-line-height="2.0">Loose</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reader Content -->
+            <div class="reader-container">
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Loading book...</p>
+                </div>
+
+                <div class="empty-state" id="emptyState">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    <h2>Welcome to Papyrus</h2>
+                    <p>Open an EPUB file to start reading</p>
+                    <button class="btn" onclick="document.getElementById('openFile').click()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        Choose EPUB File
+                    </button>
+                </div>
+
+                <div class="reader-content" id="readerContent"></div>
+
+                <!-- Bottom Navigation -->
+                <div class="bottom-nav">
+                    <button class="btn btn-secondary btn-icon" id="bottomPrevChapter" title="Previous Chapter (← Key)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                        Previous
+                    </button>
+                    <button class="btn btn-secondary btn-icon" id="bottomNextChapter" title="Next Chapter (→ Key)">
+                        Next
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <input type="file" id="fileInput" accept=".epub" />
+
+    <!-- JSZip Library for EPUB extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <script src="epub-reader.js"></script>
+</body>
+</html>
