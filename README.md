@@ -1,4 +1,4 @@
-# Papyrus - EPUB Reader for Windows 11
+# Papyrus - EPUB Reader for your Browser
 
 A beautiful, modern EPUB reader application built with web technologies. Papyrus provides an elegant reading experience with full EPUB 3.3 specification support.
 
