@@ -155,7 +155,7 @@ You can convert this into a standalone Windows application using Electron or sim
   - Buttons are disabled when not applicable (at book start/end)
 
 ### Other Navigation
-- **Click TOC items** - Jump to any chapter in the table of contents
+- **Click TOC items** - Jump to the chapter or subsection in the table of contents
 - **Click internal links** - Navigate to footnotes, references, and other chapters within the book
 - **Scroll** - Scroll to bottom of page to auto-advance to next chapter (after 300ms delay)
 - **Drag & Drop** - Load EPUB file directly from file browser

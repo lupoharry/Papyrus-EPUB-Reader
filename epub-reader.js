@@ -13,6 +13,7 @@ class EPUBReader {
         this.fixedLayoutEnabled = false;
         this.chapterRequest = 0;
         this.fixedPageSize = null;
+        this.autoAdvanceSuppressed = false;
         
         this.initializeUI();
         this.attachEventListeners();
@@ -141,10 +142,19 @@ class EPUBReader {
         this.elements.readerContent.addEventListener('scroll', () => {
             this.handleScroll();
         });
+        this.elements.readerContent.addEventListener('wheel', event => {
+            this.autoAdvanceSuppressed = false;
+            if (event.deltaY > 0) this.handleScroll();
+        });
+        for (const event of ['touchstart', 'pointerdown', 'keydown']) {
+            this.elements.readerContent.addEventListener(event, () => {
+                this.autoAdvanceSuppressed = false;
+            });
+        }
     }
 
     handleScroll() {
-        if (this.elements.readerContent.classList.contains('fixed-layout')) return;
+        if (this.autoAdvanceSuppressed || this.elements.readerContent.classList.contains('fixed-layout')) return;
         const container = this.elements.readerContent;
         const scrollPosition = container.scrollTop + container.clientHeight;
         const scrollHeight = container.scrollHeight;
@@ -156,6 +166,8 @@ class EPUBReader {
             this.scrollTimeout = setTimeout(() => {
                 this.nextChapter();
             }, 300);
+        } else {
+            clearTimeout(this.scrollTimeout);
         }
     }
 
@@ -233,7 +245,7 @@ class EPUBReader {
             const href = item.getAttribute('href');
             const mediaType = item.getAttribute('media-type');
             this.manifest[id] = {
-                href: this.rootPath + href,
+                href: this.resolveHref(decodeURIComponent(href), this.opfPath),
                 mediaType: mediaType,
                 rawHref: href  // Store original href for reference
             };
@@ -269,14 +281,16 @@ class EPUBReader {
         const navItem = opfDoc.querySelector('manifest > item[properties*="nav"]');
         
         if (navItem) {
-            const navHref = this.rootPath + navItem.getAttribute('href');
+            const navHref = this.resolveHref(decodeURIComponent(navItem.getAttribute('href')), this.opfPath);
             try {
                 const navContent = await this.currentBook.file(navHref).async('text');
                 const navDoc = new DOMParser().parseFromString(navContent, 'text/html');
-                const tocNav = navDoc.querySelector('nav[*|type="toc"], nav#toc');
+                const tocNav = Array.from(navDoc.querySelectorAll('nav')).find(nav =>
+                    (nav.getAttribute('epub:type') || '').split(/\s+/).includes('toc') || nav.id === 'toc'
+                );
                 
                 if (tocNav) {
-                    this.toc = this.parseTocFromNav(tocNav);
+                    this.toc = this.parseTocFromNav(tocNav, navHref);
                     return;
                 }
             } catch (e) {
@@ -287,64 +301,58 @@ class EPUBReader {
         // Fallback to NCX (EPUB 2)
         const ncxItem = opfDoc.querySelector('manifest > item[media-type="application/x-dtbncx+xml"]');
         if (ncxItem) {
-            const ncxHref = this.rootPath + ncxItem.getAttribute('href');
+            const ncxHref = this.resolveHref(decodeURIComponent(ncxItem.getAttribute('href')), this.opfPath);
             try {
                 const ncxContent = await this.currentBook.file(ncxHref).async('text');
                 const ncxDoc = new DOMParser().parseFromString(ncxContent, 'text/xml');
-                this.toc = this.parseTocFromNCX(ncxDoc);
+                this.toc = this.parseTocFromNCX(ncxDoc, ncxHref);
             } catch (e) {
                 console.warn('Could not parse NCX:', e);
             }
         }
     }
 
-    parseTocFromNav(navElement) {
+    parseTocFromNav(navElement, baseHref) {
         const toc = [];
         const items = navElement.querySelectorAll('ol > li, ul > li');
         
-        items.forEach((item, index) => {
-            const link = item.querySelector('a');
+        items.forEach(item => {
+            const link = Array.from(item.children).find(child => child.localName === 'a');
             if (link) {
                 const href = link.getAttribute('href');
                 const label = link.textContent.trim();
-                
-                // Find corresponding spine index
-                const contentFile = href.split('#')[0];
-                const spineIndex = this.spine.findIndex(s => s.href.endsWith(contentFile));
-                
-                toc.push({
-                    label: label,
-                    href: href,
-                    spineIndex: spineIndex >= 0 ? spineIndex : index
-                });
+                if (href) toc.push(this.createTocItem(label, href, baseHref));
             }
         });
         
         return toc;
     }
 
-    parseTocFromNCX(ncxDoc) {
+    parseTocFromNCX(ncxDoc, baseHref) {
         const toc = [];
         const navPoints = ncxDoc.querySelectorAll('navPoint');
         
-        navPoints.forEach((navPoint, index) => {
-            const label = navPoint.querySelector('navLabel > text');
-            const content = navPoint.querySelector('content');
+        navPoints.forEach(navPoint => {
+            const labelElement = Array.from(navPoint.children).find(child => child.localName === 'navLabel');
+            const label = labelElement && labelElement.querySelector('text');
+            const content = Array.from(navPoint.children).find(child => child.localName === 'content');
             
             if (label && content) {
                 const href = content.getAttribute('src');
-                const contentFile = href.split('#')[0];
-                const spineIndex = this.spine.findIndex(s => s.href.endsWith(contentFile));
-                
-                toc.push({
-                    label: label.textContent.trim(),
-                    href: href,
-                    spineIndex: spineIndex >= 0 ? spineIndex : index
-                });
+                if (href) toc.push(this.createTocItem(label.textContent.trim(), href, baseHref));
             }
         });
         
         return toc;
+    }
+
+    createTocItem(label, href, baseHref) {
+        const hash = href.indexOf('#');
+        const file = hash < 0 ? href : href.slice(0, hash);
+        const anchor = hash < 0 ? '' : decodeURIComponent(href.slice(hash + 1));
+        const targetPath = this.resolveHref(decodeURIComponent(file.split('?')[0]), baseHref);
+        const spineIndex = this.spine.findIndex(item => item.href === targetPath);
+        return { label, href, targetPath, anchor, spineIndex };
     }
 
     updateBookInfo() {
@@ -371,7 +379,7 @@ class EPUBReader {
                     <div class="toc-title">Table of Contents</div>
                     <ul class="toc-list">
                         ${this.toc.map((item, index) => `
-                            <li class="toc-item" data-index="${item.spineIndex}">
+                            <li class="toc-item" data-index="${index}">
                                 ${item.label}
                             </li>
                         `).join('')}
@@ -390,8 +398,13 @@ class EPUBReader {
         // Attach TOC click handlers
         document.querySelectorAll('.toc-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                const index = parseInt(e.target.dataset.index);
-                this.loadChapter(index);
+                const index = Number.parseInt(e.currentTarget.dataset.index, 10);
+                const target = this.toc[index];
+                if (target.spineIndex < 0) {
+                    console.warn('Table of contents target not found in spine:', target.targetPath);
+                    return;
+                }
+                this.loadChapter(target.spineIndex, target.anchor, index);
             });
         });
     }
@@ -414,11 +427,12 @@ class EPUBReader {
         }
     }
 
-    async loadChapter(index) {
+    async loadChapter(index, anchor = '', tocIndex = -1) {
         if (index < 0 || index >= this.spine.length) return;
 
         const request = ++this.chapterRequest;
         clearTimeout(this.scrollTimeout);
+        this.autoAdvanceSuppressed = true;
         this.currentSpineIndex = index;
         const chapter = this.spine[index];
 
@@ -435,10 +449,17 @@ class EPUBReader {
             if (request !== this.chapterRequest) return;
             this.updateNavButtons();
             this.updateProgress();
-            this.updateActiveTocItem();
+            this.updateActiveTocItem(tocIndex);
             
-            // Scroll to top
             this.elements.readerContent.scrollTop = 0;
+            if (anchor) {
+                const element = this.findContentAnchor(anchor);
+                if (element) {
+                    this.scrollToContentAnchor(element);
+                } else {
+                    console.warn('Anchor not found:', anchor, 'in', chapter.href);
+                }
+            }
         } catch (error) {
             if (request !== this.chapterRequest) return;
             console.error('Error loading chapter:', error);
@@ -488,7 +509,7 @@ class EPUBReader {
         const resolveResource = async (url, base, stack = new Set()) => {
             if (!url || /^(?:data:|blob:|https?:|\/\/|#)/i.test(url)) return url;
             const parts = url.split('#');
-            const path = decodeURIComponent(this.resolveHref(parts[0].split('?')[0], base));
+            const path = this.resolveHref(decodeURIComponent(parts[0].split('?')[0]), base);
             const fragment = parts.length > 1 ? '#' + parts.slice(1).join('#') : '';
             if (stack.has(path)) throw new Error('Circular stylesheet reference: ' + path);
             if (!cache.has(path)) {
@@ -555,7 +576,8 @@ class EPUBReader {
         frame.setAttribute('sandbox', 'allow-same-origin');
         frame.style.width = width + 'px';
         frame.style.height = height + 'px';
-        frame.addEventListener('load', () => {
+        const frameLoaded = new Promise(resolve => frame.addEventListener('load', () => {
+            resolve();
             if (request !== this.chapterRequest) return;
             const frameDoc = frame.contentDocument;
             frameDoc.addEventListener('click', event => {
@@ -575,7 +597,7 @@ class EPUBReader {
                     this.nextChapter();
                 }
             });
-        });
+        }, { once: true }));
         const serialized = new XMLSerializer().serializeToString(root);
         frame.srcdoc = isSvg ? `<!DOCTYPE html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}svg{width:100%;height:100%}</style></head><body>${serialized}</body></html>` :
             '<!DOCTYPE html>' + serialized;
@@ -583,6 +605,7 @@ class EPUBReader {
         this.elements.readerContent.classList.add('fixed-layout');
         this.elements.readerContent.replaceChildren(frame);
         this.resizeFixedPage();
+        await frameLoaded;
     }
 
     resizeFixedPage() {
@@ -627,6 +650,7 @@ class EPUBReader {
 
             if (request !== this.chapterRequest) return;
             // Set the content
+            this.contentBodyId = body.id;
             this.elements.readerContent.innerHTML = body.innerHTML;
             
             // Process internal links AFTER content is set
@@ -645,6 +669,7 @@ class EPUBReader {
             });
         } else {
             if (request !== this.chapterRequest) return;
+            this.contentBodyId = '';
             this.elements.readerContent.innerHTML = htmlContent;
         }
     }
@@ -685,7 +710,7 @@ class EPUBReader {
         if (file) {
             // Navigate to different file
             const currentHref = this.spine[this.currentSpineIndex].href;
-            const targetPath = this.resolveHref(file, currentHref);
+            const targetPath = this.resolveHref(decodeURIComponent(file.split('?')[0]), currentHref);
             
             console.log('Current href:', currentHref);
             console.log('Target path:', targetPath);
@@ -705,18 +730,7 @@ class EPUBReader {
             console.log('Found spine index:', spineIndex);
             
             if (spineIndex >= 0) {
-                this.loadChapter(spineIndex).then(() => {
-                    if (anchor) {
-                        setTimeout(() => {
-                            const element = this.findContentAnchor(anchor);
-                            if (element) {
-                                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            } else {
-                                console.warn('Anchor not found:', anchor);
-                            }
-                        }, 100);
-                    }
-                });
+                this.loadChapter(spineIndex, anchor ? decodeURIComponent(anchor) : '');
             } else {
                 console.warn('Target file not found in spine:', targetPath);
                 // Try to load it anyway if it exists in manifest
@@ -732,21 +746,33 @@ class EPUBReader {
                 }
             }
         } else if (anchor) {
-            // Same file, just scroll to anchor
-            setTimeout(() => {
-                const element = this.findContentAnchor(anchor);
-                if (element) {
-                    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                } else {
-                    console.warn('Anchor not found:', anchor);
-                }
-            }, 50);
+            clearTimeout(this.scrollTimeout);
+            this.autoAdvanceSuppressed = true;
+            const element = this.findContentAnchor(decodeURIComponent(anchor));
+            if (element) {
+                this.scrollToContentAnchor(element);
+            } else {
+                console.warn('Anchor not found:', anchor);
+            }
         }
     }
 
     findContentAnchor(anchor) {
         const frame = this.elements.readerContent.querySelector('.fixed-page');
-        return frame ? frame.contentDocument.getElementById(anchor) : document.getElementById(anchor);
+        const root = frame ? frame.contentDocument : this.elements.readerContent;
+        if (!root) return null;
+        if (!frame && this.contentBodyId === anchor) return root;
+        return Array.from(root.querySelectorAll('[id], a[name]')).find(element =>
+            element.id === anchor || (element.localName === 'a' && element.getAttribute('name') === anchor)
+        );
+    }
+
+    scrollToContentAnchor(element) {
+        if (element === this.elements.readerContent) {
+            element.scrollTop = 0;
+        } else {
+            element.scrollIntoView({ block: 'start' });
+        }
     }
 
     previousChapter() {
@@ -774,12 +800,13 @@ class EPUBReader {
         this.elements.pageInfo.textContent = `${this.currentSpineIndex + 1} / ${this.spine.length}`;
     }
 
-    updateActiveTocItem() {
+    updateActiveTocItem(tocIndex = -1) {
+        if (tocIndex < 0) {
+            tocIndex = this.toc.findIndex(item => item.spineIndex === this.currentSpineIndex && !item.anchor);
+            if (tocIndex < 0) tocIndex = this.toc.findIndex(item => item.spineIndex === this.currentSpineIndex);
+        }
         document.querySelectorAll('.toc-item').forEach(item => {
-            item.classList.remove('active');
-            if (parseInt(item.dataset.index) === this.currentSpineIndex) {
-                item.classList.add('active');
-            }
+            item.classList.toggle('active', Number.parseInt(item.dataset.index, 10) === tocIndex);
         });
     }
 
