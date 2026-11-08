@@ -1,11 +1,11 @@
 # Papyrus - EPUB Reader for your Browser
 
-A beautiful, modern EPUB reader application built with web technologies. Papyrus provides an elegant reading experience with full EPUB 3.3 specification support.
+A beautiful, modern EPUB reader application built with web technologies. Papyrus supports EPUB 2 and selected EPUB 3 features.
 
 ## Features
 
 ### Core Functionality
-- ✅ **Full EPUB Support**: Compatible with EPUB 2 and EPUB 3 specifications
+- ✅ **EPUB Support**: Reads EPUB 2 and EPUB 3 publications
 - ✅ **ZIP Container Parsing**: Reads standard .epub files (ZIP archives)
 - ✅ **Metadata Extraction**: Displays book title, author, publisher, and description
 - ✅ **Table of Contents**: Interactive navigation through book chapters
@@ -17,6 +17,7 @@ A beautiful, modern EPUB reader application built with web technologies. Papyrus
 - 📖 **Beautiful Typography**: Elegant serif fonts for comfortable reading
 - 🎨 **Multiple Themes**: Light, Sepia, and Dark reading modes
 - 📏 **Customizable Text**: Adjustable font size and line height
+- 📐 **Fixed Layout**: For books declaring pre-paginated pages, switch between the default reflowable view and a scaled, single-page fixed view using the toolbar. Authored styles and viewport dimensions are used in fixed view; font size and line height settings apply to reflowable view.
 - ⌨️ **Keyboard Navigation**: Arrow keys for quick chapter navigation
 - 📊 **Reading Progress**: Visual progress bar and chapter counter
 - 🖱️ **Drag & Drop**: Simply drag EPUB files into the window
@@ -169,12 +170,13 @@ You can convert this into a standalone Windows application using Electron or sim
 - Metadata (Dublin Core)
 - Manifest and Spine
 - Reading order
+- Pre-paginated XHTML and SVG pages, including per-spine layout overrides
 - Internal linking and anchors
 - Embedded images and media
 
 ### Content Types Supported
 - HTML5 / XHTML 1.1
-- CSS styling (inline and external)
+- CSS styling in fixed-layout pages (inline and external)
 - Images: JPEG, PNG, GIF, SVG, WebP
 - Internal hyperlinks
 - Table of contents navigation
@@ -184,7 +186,8 @@ You can convert this into a standalone Windows application using Electron or sim
   - Audio/Video elements (can be added)
   - JavaScript in EPUB content (security)
   - DRM-protected EPUBs
-  - Fixed-layout EPUBs (can be added)
+  - Fixed-layout spreads and page-spread positioning (fixed view displays one page at a time)
+  - Resources referenced from inside external SVG images in fixed-layout pages
   - MathML (would require additional library)
   - Media Overlays
 

@@ -246,6 +246,14 @@
             justify-content: center;
         }
 
+        .layout-toggle[hidden] {
+            display: none;
+        }
+
+        .layout-toggle {
+            white-space: nowrap;
+        }
+
         .toolbar-spacer {
             flex: 1;
         }
@@ -362,6 +370,22 @@
 
         .reader-content a:hover {
             border-bottom-color: var(--accent);
+        }
+
+        .reader-content.fixed-layout {
+            max-width: none;
+            width: 100%;
+            padding: 0;
+            margin-bottom: 140px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .fixed-page {
+            position: absolute;
+            border: 0;
+            transform-origin: top left;
+            background: white;
         }
 
         /* Bottom Navigation */
@@ -577,6 +601,10 @@
         }
 
         @media (max-width: 640px) {
+            .reader-content.fixed-layout {
+                margin-bottom: 120px;
+            }
+
             .reader-content {
                 padding: 24px 20px 140px 20px;
                 font-size: 16px;
@@ -639,6 +667,9 @@
                     </svg>
                     Open EPUB
                 </button>
+
+                <button class="btn btn-secondary layout-toggle" id="layoutToggle" type="button"
+                        aria-pressed="false" hidden>Reflowable Layout</button>
 
                 <button class="btn btn-secondary btn-icon" id="prevChapter" title="Previous Chapter" disabled>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

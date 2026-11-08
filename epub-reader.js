@@ -9,6 +9,10 @@ class EPUBReader {
         this.toc = [];
         this.opfPath = '';
         this.rootPath = '';
+        this.fixedLayoutAvailable = false;
+        this.fixedLayoutEnabled = false;
+        this.chapterRequest = 0;
+        this.fixedPageSize = null;
         
         this.initializeUI();
         this.attachEventListeners();
@@ -18,6 +22,7 @@ class EPUBReader {
         this.elements = {
             fileInput: document.getElementById('fileInput'),
             openFileBtn: document.getElementById('openFile'),
+            layoutToggle: document.getElementById('layoutToggle'),
             readerContent: document.getElementById('readerContent'),
             bookInfo: document.getElementById('bookInfo'),
             emptyState: document.getElementById('emptyState'),
@@ -48,6 +53,14 @@ class EPUBReader {
                 this.loadEPUB(file);
             }
         });
+
+        this.elements.layoutToggle.addEventListener('click', () => {
+            this.fixedLayoutEnabled = !this.fixedLayoutEnabled;
+            this.updateLayoutToggle();
+            this.loadChapter(this.currentSpineIndex);
+        });
+
+        new ResizeObserver(() => this.resizeFixedPage()).observe(this.elements.readerContent);
 
         // Navigation
         this.elements.prevChapter.addEventListener('click', () => this.previousChapter());
@@ -131,6 +144,7 @@ class EPUBReader {
     }
 
     handleScroll() {
+        if (this.elements.readerContent.classList.contains('fixed-layout')) return;
         const container = this.elements.readerContent;
         const scrollPosition = container.scrollTop + container.clientHeight;
         const scrollHeight = container.scrollHeight;
@@ -156,6 +170,15 @@ class EPUBReader {
     }
 
     async loadEPUB(file) {
+        ++this.chapterRequest;
+        clearTimeout(this.scrollTimeout);
+        this.fixedLayoutAvailable = false;
+        this.fixedLayoutEnabled = false;
+        this.updateLayoutToggle();
+        this.elements.readerContent.classList.remove('fixed-layout');
+        this.manifest = {};
+        this.spine = [];
+        this.toc = [];
         this.showLoading();
 
         try {
@@ -193,6 +216,8 @@ class EPUBReader {
 
         // Parse metadata
         const metadata = opfDoc.querySelector('metadata');
+        const layoutMeta = metadata.querySelector('meta[property="rendition:layout"]');
+        const defaultLayout = layoutMeta ? layoutMeta.textContent.trim() : 'reflowable';
         this.metadata = {
             title: this.getMetadataValue(metadata, 'dc\\:title, title'),
             creator: this.getMetadataValue(metadata, 'dc\\:creator, creator'),
@@ -218,8 +243,14 @@ class EPUBReader {
         const spineItems = opfDoc.querySelectorAll('spine > itemref');
         this.spine = Array.from(spineItems).map(item => {
             const idref = item.getAttribute('idref');
-            return this.manifest[idref];
+            const properties = (item.getAttribute('properties') || '').split(/\s+/);
+            const layout = properties.includes('rendition:layout-pre-paginated') ? 'pre-paginated' :
+                properties.includes('rendition:layout-reflowable') ? 'reflowable' : defaultLayout;
+            return { ...this.manifest[idref], layout };
         });
+
+        this.fixedLayoutAvailable = this.spine.some(item => item.layout === 'pre-paginated');
+        this.updateLayoutToggle();
 
         // Try to parse navigation document (EPUB 3) or NCX (EPUB 2)
         await this.parseNavigation(opfDoc);
@@ -386,12 +417,22 @@ class EPUBReader {
     async loadChapter(index) {
         if (index < 0 || index >= this.spine.length) return;
 
+        const request = ++this.chapterRequest;
+        clearTimeout(this.scrollTimeout);
         this.currentSpineIndex = index;
         const chapter = this.spine[index];
 
         try {
             const content = await this.currentBook.file(chapter.href).async('text');
-            await this.renderContent(content, chapter.href);
+            if (request !== this.chapterRequest) return;
+            const fixed = this.fixedLayoutEnabled && chapter.layout === 'pre-paginated';
+            if (fixed) {
+                await this.renderFixedContent(content, chapter, request);
+            } else {
+                this.elements.readerContent.classList.remove('fixed-layout');
+                await this.renderContent(content, chapter.href, request);
+            }
+            if (request !== this.chapterRequest) return;
             this.updateNavButtons();
             this.updateProgress();
             this.updateActiveTocItem();
@@ -399,12 +440,163 @@ class EPUBReader {
             // Scroll to top
             this.elements.readerContent.scrollTop = 0;
         } catch (error) {
+            if (request !== this.chapterRequest) return;
             console.error('Error loading chapter:', error);
+            this.elements.readerContent.classList.remove('fixed-layout');
             this.elements.readerContent.innerHTML = '<p>Error loading chapter content.</p>';
         }
     }
 
-    async renderContent(htmlContent, baseHref) {
+    updateLayoutToggle() {
+        const button = this.elements.layoutToggle;
+        button.hidden = !this.fixedLayoutAvailable;
+        button.textContent = this.fixedLayoutEnabled ? 'Fixed Layout' : 'Reflowable Layout';
+        button.setAttribute('aria-pressed', String(this.fixedLayoutEnabled));
+        button.title = this.fixedLayoutEnabled ? 'Switch to Reflowable Layout' : 'Switch to Fixed Layout';
+    }
+
+    async renderFixedContent(content, chapter, request) {
+        const isSvg = chapter.mediaType === 'image/svg+xml';
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(content, isSvg ? 'image/svg+xml' : 'text/html');
+        const root = isSvg ? doc.documentElement : doc.querySelector('html');
+        if (!root || doc.querySelector('parsererror')) {
+            throw new Error('Invalid fixed-layout document: ' + chapter.href);
+        }
+
+        let width;
+        let height;
+        if (isSvg) {
+            const viewBox = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+            const svgWidth = root.getAttribute('width') || '';
+            const svgHeight = root.getAttribute('height') || '';
+            width = (svgWidth.includes('%') ? 0 : parseFloat(svgWidth)) || viewBox[2];
+            height = (svgHeight.includes('%') ? 0 : parseFloat(svgHeight)) || viewBox[3];
+        } else {
+            const viewport = doc.querySelector('meta[name="viewport" i]');
+            const value = viewport ? viewport.getAttribute('content') || '' : '';
+            const widthMatch = value.match(/(?:^|[,;\s])width\s*=\s*(\d+(?:\.\d+)?)/i);
+            const heightMatch = value.match(/(?:^|[,;\s])height\s*=\s*(\d+(?:\.\d+)?)/i);
+            width = widthMatch && Number(widthMatch[1]);
+            height = heightMatch && Number(heightMatch[1]);
+        }
+        if (!(width > 0 && height > 0)) {
+            throw new Error('Fixed-layout page has no valid viewport: ' + chapter.href);
+        }
+
+        const cache = new Map();
+        const resolveResource = async (url, base, stack = new Set()) => {
+            if (!url || /^(?:data:|blob:|https?:|\/\/|#)/i.test(url)) return url;
+            const parts = url.split('#');
+            const path = decodeURIComponent(this.resolveHref(parts[0].split('?')[0], base));
+            const fragment = parts.length > 1 ? '#' + parts.slice(1).join('#') : '';
+            if (stack.has(path)) throw new Error('Circular stylesheet reference: ' + path);
+            if (!cache.has(path)) {
+                const file = this.currentBook.file(path);
+                if (!file) throw new Error('Missing EPUB resource: ' + path);
+                const manifestItem = Object.values(this.manifest).find(item => item.href === path);
+                const type = manifestItem ? manifestItem.mediaType : '';
+                if (type === 'text/css' || /\.css$/i.test(path)) {
+                    const css = await file.async('text');
+                    const nextStack = new Set(stack);
+                    nextStack.add(path);
+                    const rewritten = await rewriteCss(css, path, nextStack);
+                    cache.set(path, 'data:text/css;charset=utf-8,' + encodeURIComponent(rewritten));
+                } else {
+                    const data = await file.async('base64');
+                    cache.set(path, `data:${type || 'application/octet-stream'};base64,${data}`);
+                }
+            }
+            return cache.get(path) + fragment;
+        };
+        const rewriteCss = async (css, base, stack = new Set()) => {
+            const pattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)|@import\s+(['"])([^'"]+)\3/gi;
+            const matches = Array.from(css.matchAll(pattern));
+            for (const match of matches.reverse()) {
+                const url = await resolveResource((match[2] || match[4]).trim(), base, stack);
+                const replacement = match[4] ? `@import url("${url}")` : `url("${url}")`;
+                css = css.slice(0, match.index) + replacement + css.slice(match.index + match[0].length);
+            }
+            return css;
+        };
+
+        doc.querySelectorAll('script, base').forEach(element => element.remove());
+        for (const element of [root, ...root.querySelectorAll('*')]) {
+            for (const attr of Array.from(element.attributes)) {
+                if (/^on/i.test(attr.name)) element.removeAttribute(attr.name);
+            }
+            if (element.hasAttribute('style')) {
+                element.setAttribute('style', await rewriteCss(element.getAttribute('style'), chapter.href));
+            }
+            if (element.localName === 'style') {
+                element.textContent = await rewriteCss(element.textContent, chapter.href);
+            }
+            if (element.hasAttribute('srcset')) {
+                const candidates = element.getAttribute('srcset').match(/(?:data:[^\s]+|[^\s,]+)(?:\s+[^,]+)?/gi) || [];
+                const rewritten = await Promise.all(candidates.map(async candidate => {
+                    const match = candidate.trim().match(/^(\S+)(.*)$/);
+                    return match ? (await resolveResource(match[1], chapter.href)) + match[2] : '';
+                }));
+                element.setAttribute('srcset', rewritten.join(', '));
+            }
+            for (const attr of ['src', 'poster', 'data', 'href', 'xlink:href']) {
+                if (!element.hasAttribute(attr)) continue;
+                if ((attr === 'href' || attr === 'xlink:href') &&
+                    (element.localName === 'a' || (element.localName === 'link' &&
+                        !(element.getAttribute('rel') || '').toLowerCase().split(/\s+/).includes('stylesheet')))) continue;
+                element.setAttribute(attr, await resolveResource(element.getAttribute(attr), chapter.href));
+            }
+        }
+        if (request !== this.chapterRequest) return;
+
+        const frame = document.createElement('iframe');
+        frame.className = 'fixed-page';
+        frame.title = 'Fixed layout page';
+        frame.setAttribute('sandbox', 'allow-same-origin');
+        frame.style.width = width + 'px';
+        frame.style.height = height + 'px';
+        frame.addEventListener('load', () => {
+            if (request !== this.chapterRequest) return;
+            const frameDoc = frame.contentDocument;
+            frameDoc.addEventListener('click', event => {
+                const link = event.target.closest('a[href], a[xlink\\:href]');
+                if (!link) return;
+                const href = link.getAttribute('href') || link.getAttribute('xlink:href');
+                if (/^(?:https?:|mailto:|\/\/)/i.test(href)) return;
+                event.preventDefault();
+                this.handleInternalLink(href);
+            });
+            frameDoc.addEventListener('keydown', event => {
+                if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    this.previousChapter();
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    this.nextChapter();
+                }
+            });
+        });
+        const serialized = new XMLSerializer().serializeToString(root);
+        frame.srcdoc = isSvg ? `<!DOCTYPE html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}svg{width:100%;height:100%}</style></head><body>${serialized}</body></html>` :
+            '<!DOCTYPE html>' + serialized;
+        this.fixedPageSize = { width, height };
+        this.elements.readerContent.classList.add('fixed-layout');
+        this.elements.readerContent.replaceChildren(frame);
+        this.resizeFixedPage();
+    }
+
+    resizeFixedPage() {
+        const container = this.elements.readerContent;
+        const frame = container.querySelector('.fixed-page');
+        if (!frame || !this.fixedPageSize) return;
+        const { width, height } = this.fixedPageSize;
+        const scale = Math.min(container.clientWidth / width, container.clientHeight / height);
+        frame.style.transform = `scale(${scale})`;
+        frame.style.left = (container.clientWidth - width * scale) / 2 + 'px';
+        frame.style.top = (container.clientHeight - height * scale) / 2 + 'px';
+    }
+
+    async renderContent(htmlContent, baseHref, request = this.chapterRequest) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlContent, 'text/html');
         const body = doc.querySelector('body');
@@ -433,6 +625,7 @@ class EPUBReader {
                 }
             }
 
+            if (request !== this.chapterRequest) return;
             // Set the content
             this.elements.readerContent.innerHTML = body.innerHTML;
             
@@ -451,6 +644,7 @@ class EPUBReader {
                 }
             });
         } else {
+            if (request !== this.chapterRequest) return;
             this.elements.readerContent.innerHTML = htmlContent;
         }
     }
@@ -514,7 +708,7 @@ class EPUBReader {
                 this.loadChapter(spineIndex).then(() => {
                     if (anchor) {
                         setTimeout(() => {
-                            const element = document.getElementById(anchor);
+                            const element = this.findContentAnchor(anchor);
                             if (element) {
                                 element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             } else {
@@ -540,7 +734,7 @@ class EPUBReader {
         } else if (anchor) {
             // Same file, just scroll to anchor
             setTimeout(() => {
-                const element = document.getElementById(anchor);
+                const element = this.findContentAnchor(anchor);
                 if (element) {
                     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } else {
@@ -548,6 +742,11 @@ class EPUBReader {
                 }
             }, 50);
         }
+    }
+
+    findContentAnchor(anchor) {
+        const frame = this.elements.readerContent.querySelector('.fixed-page');
+        return frame ? frame.contentDocument.getElementById(anchor) : document.getElementById(anchor);
     }
 
     previousChapter() {
